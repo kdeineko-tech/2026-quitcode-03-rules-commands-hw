@@ -5,7 +5,10 @@ import { log } from "../core/log.js";
 import { isRecord, isString, parseJson } from "../core/parse.js";
 import type { Integration, Lead, Result } from "../core/types.js";
 
-const HUBSPOT_CONTACTS_URL = "https://api.hubapi.com/crm/v3/objects/contacts";
+// batch/upsert, а не plain create: postJson повторює 5xx/429/мережеві збої,
+// а create-запит із тим самим email при повторі повертає конфлікт, а не
+// оновлення — upsert з idProperty=email ідемпотентний і робить повтори безпечними.
+const HUBSPOT_CONTACTS_UPSERT_URL = "https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert";
 
 export function toHubspotProperties(lead: Lead): Record<string, string> {
   const properties: Record<string, string> = {
@@ -17,7 +20,14 @@ export function toHubspotProperties(lead: Lead): Record<string, string> {
   return properties;
 }
 
-const isHubspotContact = (value: unknown): value is { id: string } => isRecord(value) && isString(value.id);
+interface HubspotUpsertResult {
+  id: string;
+}
+
+const isHubspotUpsertResult = (value: unknown): value is HubspotUpsertResult => isRecord(value) && isString(value.id);
+
+const isHubspotUpsertResponse = (value: unknown): value is { results: readonly HubspotUpsertResult[] } =>
+  isRecord(value) && Array.isArray(value.results) && value.results.length > 0 && value.results.every(isHubspotUpsertResult);
 
 export const hubspot: Integration = {
   name: "hubspot",
@@ -28,8 +38,8 @@ export const hubspot: Integration = {
     if (!token.ok) return token;
 
     const response = await postJson(
-      HUBSPOT_CONTACTS_URL,
-      { properties: toHubspotProperties(lead) },
+      HUBSPOT_CONTACTS_UPSERT_URL,
+      { inputs: [{ idProperty: "email", id: lead.email, properties: toHubspotProperties(lead) }] },
       { headers: { authorization: `Bearer ${token.value}` } },
     );
     if (!response.ok) {
@@ -37,13 +47,13 @@ export const hubspot: Integration = {
       return response;
     }
 
-    const parsed = parseJson(response.value, isHubspotContact, "hubspot");
+    const parsed = parseJson(response.value, isHubspotUpsertResponse, "hubspot");
     if (!parsed.ok) {
       log.error(`hubspot: lead ${lead.id} not delivered: ${parsed.error}`);
       return parsed;
     }
 
-    log.info(`hubspot: contact ${parsed.value.id} created for lead ${lead.id}`);
+    log.info(`hubspot: contact ${parsed.value.results[0].id} upserted for lead ${lead.id}`);
     return { ok: true, value: undefined };
   },
 };

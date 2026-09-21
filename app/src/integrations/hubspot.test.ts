@@ -41,16 +41,35 @@ describe("hubspot", () => {
     });
   });
 
-  it("створює контакт у HubSpot і повертає ok", async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{"id":"contact_001"}', { status: 201 }));
+  it("апсертить контакт у HubSpot через batch/upsert і повертає ok", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{"results":[{"id":"contact_001","new":true}]}', { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(hubspot.send(lead)).resolves.toEqual({ ok: true, value: undefined });
 
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("https://api.hubapi.com/crm/v3/objects/contacts");
+    expect(url).toBe("https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert");
     expect(init?.headers).toMatchObject({ authorization: "Bearer fake-hubspot-token-0000" });
-    expect(JSON.parse(String(init?.body))).toEqual({ properties: toHubspotProperties(lead) });
+    expect(JSON.parse(String(init?.body))).toEqual({
+      inputs: [{ idProperty: "email", id: lead.email, properties: toHubspotProperties(lead) }],
+    });
+  });
+
+  it("повторна відправка того самого email лишається ідемпотентною — той самий idProperty/id, без дублів", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{"results":[{"id":"contact_001","new":false}]}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await hubspot.send(lead);
+    await hubspot.send(lead); // симулює повтор після втраченої відповіді (ретрай postJson)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      const [url, init] = call;
+      expect(url).toBe("https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert");
+      const body = JSON.parse(String(init?.body));
+      expect(body.inputs[0].idProperty).toBe("email");
+      expect(body.inputs[0].id).toBe(lead.email);
+    }
   });
 
   it("повертає помилку, якщо HubSpot відповів помилкою", async () => {
@@ -61,7 +80,7 @@ describe("hubspot", () => {
 
     await expect(hubspot.send(lead)).resolves.toEqual({
       ok: false,
-      error: "POST https://api.hubapi.com/crm/v3/objects/contacts failed: HTTP 400",
+      error: "POST https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert failed: HTTP 400",
     });
   });
 });

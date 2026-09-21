@@ -25,7 +25,7 @@ if (!filePath) process.exit(0);
 const cwd = input.cwd || process.cwd();
 const relPath = relative(cwd, resolve(cwd, filePath)).split(sep).join("/");
 
-if (relPath.startsWith("app/src/core/")) {
+if (relPath.toLowerCase().startsWith("app/src/core/")) {
   console.error(
     `protect-core: ${relPath} — app/src/core/** захищене ядро агенції (не редагується в цьому проєкті). ` +
       `Якщо задача цього вимагає — опиши потрібну зміну текстом, це піде окремим PR через рев'ю платформної команди.`,
