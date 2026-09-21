@@ -1,0 +1,82 @@
+diff --git a/app/src/core/types.ts b/app/src/core/types.ts
+index 72303a0..4139d14 100644
+--- a/app/src/core/types.ts
++++ b/app/src/core/types.ts
+@@ -11,6 +11,8 @@ export interface Lead {
+   budgetUsd?: number;
+   /** ISO-8601, UTC. */
+   createdAt: string;
++  /** Рекламна кампанія (utm_campaign форми сайту), може бути відсутньою. */
++  utmCampaign?: string;
+ }
+ 
+ /** Результат операції, що може не вдатися. Помилки — це значення, а не винятки. */
+diff --git a/app/src/integrations/sheets-append.test.ts b/app/src/integrations/sheets-append.test.ts
+index 12e42ce..7525919 100644
+--- a/app/src/integrations/sheets-append.test.ts
++++ b/app/src/integrations/sheets-append.test.ts
+@@ -8,6 +8,15 @@ const lead: Lead = {
+   email: "andrii@studio-nova.example.test",
+   source: "instagram",
+   createdAt: "2026-09-10T09:30:00.000Z",
++  utmCampaign: "autumn_sale",
++};
++
++const leadWithoutCampaign: Lead = {
++  id: "ld_0003",
++  name: "Олена Тестова",
++  email: "olena@studio-nova.example.test",
++  source: "website",
++  createdAt: "2026-09-10T09:45:00.000Z",
+ };
+ 
+ beforeEach(() => {
+@@ -23,7 +32,7 @@ afterEach(() => {
+ });
+ 
+ describe("sheets-append", () => {
+-  it("додає рядок у таблицю і повертає ok", async () => {
++  it("додає рядок у таблицю з кампанією останньою колонкою і повертає ok", async () => {
+     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{"status":"ok"}', { status: 200 }));
+     vi.stubGlobal("fetch", fetchMock);
+ 
+@@ -32,7 +41,23 @@ describe("sheets-append", () => {
+     const [url, init] = fetchMock.mock.calls[0]!;
+     expect(url).toBe("https://sheets.example.test/append?token=fake-sheets-token-0000");
+     expect(JSON.parse(String(init?.body))).toEqual({
+-      values: [["2026-09-10T09:30:00.000Z", "Андрій Тестовий", "andrii@studio-nova.example.test", "", "instagram"]],
++      values: [
++        ["2026-09-10T09:30:00.000Z", "Андрій Тестовий", "andrii@studio-nova.example.test", "", "instagram", "autumn_sale"],
++      ],
++    });
++  });
++
++  it("записує порожню колонку кампанії, якщо utmCampaign відсутній", async () => {
++    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{"status":"ok"}', { status: 200 }));
++    vi.stubGlobal("fetch", fetchMock);
++
++    await expect(sheetsAppend.send(leadWithoutCampaign)).resolves.toEqual({ ok: true, value: undefined });
++
++    const [, init] = fetchMock.mock.calls[0]!;
++    expect(JSON.parse(String(init?.body))).toEqual({
++      values: [
++        ["2026-09-10T09:45:00.000Z", "Олена Тестова", "olena@studio-nova.example.test", "", "website", ""],
++      ],
+     });
+   });
+ 
+diff --git a/app/src/integrations/sheets-append.ts b/app/src/integrations/sheets-append.ts
+index f55155f..e26ddb7 100644
+--- a/app/src/integrations/sheets-append.ts
++++ b/app/src/integrations/sheets-append.ts
+@@ -20,7 +20,9 @@ export default {
+ 
+     const url = `${webhookUrl.value}?token=${token.value}`;
+     const response = await postJson(url, {
+-      values: [[lead.createdAt, lead.name, lead.email, lead.phone ?? "", lead.source]],
++      values: [
++        [lead.createdAt, lead.name, lead.email, lead.phone ?? "", lead.source, lead.utmCampaign ?? ""],
++      ],
+     });
+     if (!response.ok) {
+       log.error(`sheets-append: lead ${lead.id} not delivered: ${response.error}`);
