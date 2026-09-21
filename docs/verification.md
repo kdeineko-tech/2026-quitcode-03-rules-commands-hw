@@ -96,5 +96,21 @@
 
 ## Task E (бонус) — хук
 
-- Файли: <напр. `.claude/settings.json`, `.claude/hooks/protect-core.mjs`>
-- Спроба змінити `app/src/core/...` → що відповів хук (цитата): <...>
+- Файли: `.claude/settings.json` (реєструє `PreToolUse`-хук з
+  `matcher: "Edit|Write"`), `.claude/hooks/protect-core.mjs` (Node, читає
+  JSON зі stdin, бере `tool_input.file_path`, і якщо шлях відносно `cwd`
+  починається з `app/src/core/` — пише причину в stderr і виходить з
+  кодом 2).
+- Спроба змінити `app/src/core/log.ts` → що відповів хук (цитата,
+  дослівно з реальної, живої спроби `Edit` в цій сесії — не з ручного
+  прогону скрипта): «`PreToolUse:Edit hook error: [node
+  .claude/hooks/protect-core.mjs]: protect-core: app/src/core/log.ts —
+  app/src/core/** захищене ядро агенції (не редагується в цьому проєкті).
+  Якщо задача цього вимагає — опиши потрібну зміну текстом, це піде
+  окремим PR через рев'ю платформної команди.`» — дію заблоковано, файл
+  лишився незміненим (`git status --short app/src/core/log.ts` —
+  порожньо).
+- Sanity-check «не блокує зайвого»: правка цього самого файлу
+  (`docs/verification.md`, поза `app/src/core/`) одразу після невдалої
+  спроби пройшла без перешкод — хук реагує вибірково, не на будь-який
+  `Edit`/`Write`.
